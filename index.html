@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>萌趣单词消消乐</title>
+    <style>
+        :root {
+            --pink: #FF9AA2;
+            --blue: #89CFF0;
+            --yellow: #FFD700;
+            --text-dark: #5C4B51;
+        }
+
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: 'Comic Sans MS', cursive;
+            background: linear-gradient(135deg, #FFF0F5 0%, #E6E6FA 100%);
+        }
+
+        /* 新增标题样式 */
+        .game-header {
+            text-align: center;
+            margin: 20px 0;
+            position: relative;
+        }
+
+        .game-title {
+            font-size: 3.5em;
+            color: var(--pink);
+            text-shadow: 3px 3px 0 var(--yellow);
+            display: inline-block;
+            animation: bounce 1s ease-in-out infinite;
+        }
+
+        @keyframes bounce {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+        }
+
+        .game-title::after {
+            content: "✨";
+            position: absolute;
+            right: -40px;
+            top: -5px;
+        }
+
+        /* 游戏区域 */
+        .top-section {
+            background: rgba(255,255,255,0.9);
+            border-radius: 20px;
+            padding: 15px 30px;
+            margin-bottom: 20px;
+            box-shadow: 0 5px 15px rgba(255,154,162,0.2);
+        }
+
+        .score-board {
+            font-size: 20px;
+            color: var(--text-dark);
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+        }
+
+        .game-area {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            min-height: 450px;
+        }
+
+        .word-column {
+            padding: 25px;
+            border-radius: 30px;
+            position: relative;
+            background: rgba(255,255,255,0.95);
+            box-shadow: 0 8px 20px rgba(137,207,240,0.15);
+        }
+
+        #english-column { border: 4px dotted var(--pink); }
+        #chinese-column { border: 4px dashed var(--blue); }
+
+        .word-card {
+            padding: 15px 25px;
+            margin: 10px;
+            border-radius: 35px;
+            cursor: pointer;
+            position: absolute;
+            user-select: none;
+            font-size: 20px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            transition: all 0.3s;
+        }
+
+        .english {
+            background: var(--pink);
+            color: white;
+            transform: rotate(-3deg);
+        }
+
+        .chinese {
+            background: var(--blue);
+            color: white;
+            transform: rotate(3deg);
+        }
+
+        /* 按钮样式 */
+        button {
+            padding: 12px 25px;
+            border-radius: 30px;
+            cursor: pointer;
+            background: linear-gradient(145deg, var(--pink), var(--blue));
+            color: white;
+            border: none;
+            font-size: 18px;
+            transition: 0.3s;
+        }
+
+        button:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 5px 15px rgba(255,154,162,0.3);
+        }
+
+        /* 输入框 */
+        #question-input {
+            width: 100%;
+            padding: 20px;
+            border-radius: 25px;
+            margin: 15px 0;
+            border: 3px solid var(--pink);
+            background: rgba(255,255,255,0.9);
+        }
+    </style>
+</head>
+<body>
+    <!-- 新增标题 -->
+    <div class="game-header">
+        <h1 class="game-title">单词消消乐</h1>
+    </div>
+
+    <div class="top-section">
+        <div class="score-board">
+            <span>正确：<span id="score">0</span></span>
+            <span>用时：<span id="timer">0</span>秒</span>
+        </div>
+        <div>
+            <button id="start-btn" onclick="startGame()">⏱️ 开始游戏</button>
+            <button id="end-btn" onclick="endGame()" disabled>🚫 结束游戏</button>
+        </div>
+    </div>
+
+    <div class="game-area">
+        <div id="english-column" class="word-column"></div>
+        <div id="chinese-column" class="word-column"></div>
+    </div>
+
+    <div class="top-section">
+        <div>
+            <button onclick="enableEdit()">✏️ 编辑模式</button>
+            <button onclick="document.getElementById('file-input').click()">📁 导入单词</button>
+            <button onclick="clearAll()">🧹 清空</button>
+        </div>
+        <textarea id="question-input" placeholder="输入格式：\napple/苹果\nbanana/香蕉"></textarea>
+        <button onclick="confirmEdit()">✅ 确认更新</button>
+        <input type="file" id="file-input" hidden accept=".xlsx" onchange="importExcel()">
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script>
+        let currentPair = { en: null, cn: null };
+        let score = 0;
+        let time = 0;
+        let timer = null;
+        let wordPairs = [];
+
+        // 初始化示例数据
+        document.getElementById('question-input').value = `apple/苹果
+banana/香蕉
+cat/猫
+dog/狗`;
+
+        // Excel解析修复
+        async function importExcel() {
+            const file = document.getElementById('file-input').files[0];
+            const reader = new FileReader();
+            
+            reader.onload = function(e) {
+                const data = new Uint8Array(e.target.result);
+                const workbook = XLSX.read(data, {type: 'array'});
+                const sheet = workbook.Sheets[workbook.SheetNames[0]];
+                
+                // 修复列头识别
+                const jsonData = XLSX.utils.sheet_to_json(sheet, {
+                    header: ['英文', '中文'], // 强制指定列头
+                    range: 1 // 跳过标题行
+                });
+
+                const wordText = jsonData
+                    .filter(row => row.英文 && row.中文)
+                    .map(row => `${row.英文}/${row.中文}`)
+                    .join('\n');
+
+                document.getElementById('question-input').value = wordText;
+                confirmEdit();
+            };
+            
+            reader.readAsArrayBuffer(file);
+        }
+
+        function initGame() {
+            const input = document.getElementById('question-input').value;
+            wordPairs = parseInput(input);
+            renderWords();
+        }
+
+        function parseInput(text) {
+            return text.split('\n')
+                .filter(line => line.includes('/'))
+                .map(line => {
+                    const [en, cn] = line.split('/').map(s => s.trim());
+                    return { en, cn };
+                });
+        }
+
+        function renderWords() {
+            const enCol = document.getElementById('english-column');
+            const cnCol = document.getElementById('chinese-column');
+            enCol.innerHTML = '';
+            cnCol.innerHTML = '';
+
+            wordPairs.forEach(pair => {
+                createWordCard(pair.en, 'english', enCol);
+                createWordCard(pair.cn, 'chinese', cnCol);
+            });
+        }
+
+        function createWordCard(text, type, parent) {
+            const card = document.createElement('div');
+            card.className = `word-card ${type}`;
+            card.textContent = text;
+            card.style.left = `${Math.random()*80}%`;
+            card.style.top = `${Math.random()*80}%`;
+            card.onclick = handleClick;
+            parent.appendChild(card);
+        }
+
+        function handleClick(e) {
+            if (!timer) return;
+            
+            const card = e.target;
+            card.style.transform = card.style.transform ? '' : 'scale(0.9)';
+
+            if (card.classList.contains('english')) {
+                currentPair.en = card.textContent;
+            } else {
+                currentPair.cn = card.textContent;
+            }
+
+            if (currentPair.en && currentPair.cn) {
+                checkMatch();
+                currentPair = { en: null, cn: null };
+            }
+        }
+
+        function checkMatch() {
+            const isValid = wordPairs.some(pair => 
+                pair.en === currentPair.en && pair.cn === currentPair.cn
+            );
+
+            if (isValid) {
+                score++;
+                document.getElementById('score').textContent = score;
+                document.querySelectorAll('.word-card').forEach(card => {
+                    if (card.textContent === currentPair.en || card.textContent === currentPair.cn) {
+                        card.style.opacity = '0.3';
+                        card.style.pointerEvents = 'none';
+                    }
+                });
+            }
+        }
+
+        function startGame() {
+            document.getElementById('start-btn').disabled = true;
+            document.getElementById('end-btn').disabled = false;
+            timer = setInterval(() => {
+                time++;
+                document.getElementById('timer').textContent = time;
+            }, 1000);
+            initGame();
+        }
+
+        function endGame() {
+            clearInterval(timer);
+            document.getElementById('start-btn').disabled = false;
+            document.getElementById('end-btn').disabled = true;
+            alert(`游戏结束！\n正确数：${score}\n用时：${time}秒`);
+            resetGame();
+        }
+
+        function enableEdit() {
+            document.getElementById('question-input').focus();
+        }
+
+        function confirmEdit() {
+            initGame();
+            alert('题库已更新！✨');
+        }
+
+        function clearAll() {
+            document.getElementById('question-input').value = '';
+            resetGame();
+        }
+
+        function resetGame() {
+            score = 0;
+            time = 0;
+            document.getElementById('score').textContent = '0';
+            document.getElementById('timer').textContent = '0';
+            document.querySelectorAll('.word-card').forEach(card => card.remove());
+        }
+
+        // 初始化游戏
+        initGame();
+    </script>
+</body>
+</html>
